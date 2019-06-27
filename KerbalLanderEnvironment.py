@@ -26,11 +26,17 @@ class KerbalLanderEnvironment(gym.Env):
         self.autopilot = self.vessel.auto_pilot
         self.autopilot.reference_frame = self.frame
 
+        self.propellant = self.engine.propellants[0]
+        self.currentFuel = self.propellant.current_amount
+        self.hasFuel = self.engine.has_fuel
+
     def terminate(self):
 
         termAlt = self.altitude > 100000 or self.altitude < 3
-        termFuel = self.fuel < 1E-3
+        termFuel = not self.hasFuel
         termLanded = self.vessel.situation.landed
+
+        # Also have a nSteps requirement in here?
 
         return termAlt or termFuel or termLanded
 
@@ -43,27 +49,29 @@ class KerbalLanderEnvironment(gym.Env):
 
         self.reward_range = (0, 1)
 
+        self.stepCounter = 0
+
         # Observations are:
-        # Current thrust (float)
+        # Current throttle (float)
         # Altitude above surface (float)
         # Velocity vector (3 floats)
 
         # Could add position vector (3 floats)(?)
 
         lowObs = np.array([
-            0, # Thrust,
+            0, # Throttle,
             0, # Altitude,
-            -np.finfo(np.float32).max, # v1,
-            -np.finfo(np.float32).max, # v2,
-            -np.finfo(np.float32).max # v3
+            -np.finfo(np.float32).max, # vx,
+            -np.finfo(np.float32).max, # vy,
+            -np.finfo(np.float32).max # vz
         ])
 
         highObs = np.array([
-            1, # Thrust,
+            1, # Throttle,
             100000, # Altitude,
-            np.finfo(np.float32).max, # v1,
-            np.finfo(np.float32).max, # v2,
-            np.finfo(np.float32).max # v3
+            np.finfo(np.float32).max, # vx,
+            np.finfo(np.float32).max, # vy,
+            np.finfo(np.float32).max # vz
         ])
 
         self.observation_space = spaces.Box(lowObs, highObs, dtype = np.float32)
@@ -75,13 +83,13 @@ class KerbalLanderEnvironment(gym.Env):
         lowAct = np.array([
             -90, # pitch
             0, # heading
-            0, # thrust
+            0, # throttle
         ])
 
         highAct = np.array([
             90, # pitch
             360, # heading
-            1, # thrust
+            1, # throttle
         ])
 
         self.action_space = spaces.Box(lowAct, highAct, dtype = np.float32)
@@ -91,13 +99,47 @@ class KerbalLanderEnvironment(gym.Env):
         initKRPC(self.serverAddress)
 
     def reset(self):
+
+        loadSave(self.saveName)
+        initKRPC(self.serverAddress)
+
+    def _nextObservation(self):
+
+        velocity = self.telemetry.velocity
+
+        obs = np.array([
+            self.control.throttle,
+            self.telemetry.surface_altitude,
+            velocity[0],
+            velocity[1],
+            velocity[2],
+        ])
+
+        return obs
+
+    def _takeAction(self, action):
+
+        pitch, heading, throttle = action
+
+        self.autopilot.target_pitch_and_heading(pitch, heading)
+        self.autopilot.engage()
+
+        # Block whilst the vessel orients
+        # self.autopilot.wait()
+
+        self.control.throttle = throttle
+
+    def calculateReward(self):
         pass
 
-    def _next_observation(self):
-        pass
+    def step(self, action):
 
-    def step(self):
-        pass
+        self.stepCounter += 1
 
-    def _take_action(self):
-        pass
+        self._takeAction(action)
+
+        obs = self._nextObservation()
+        reward = calculateReward()
+        done = self.terminate()
+
+        return obs, reward, done, {}
