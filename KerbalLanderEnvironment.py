@@ -27,18 +27,25 @@ class KerbalLanderEnvironment(gym.Env):
         self.autopilot.reference_frame = self.frame
 
         self.propellant = self.engine.propellants[0]
-        self.currentFuel = self.propellant.current_amount
+        self.initFuel = self.propellant.current_amount
+        self.currentFuel = self.initFuel
         self.hasFuel = self.engine.has_fuel
 
     def terminate(self):
 
-        termAlt = self.altitude > 100000 or self.altitude < 3
-        termFuel = not self.hasFuel
+        termAlt = self.telemetry.surface_altitude > 100000 or self.telemetry.surface_altitude < 3
+        termFuel = not self.engine.has_fuel
         termLanded = self.vessel.situation.landed
 
         # Also have a nSteps requirement in here?
 
         return termAlt or termFuel or termLanded
+
+    def exploded(self):
+        return not self.vessel.comms.can_communicate
+
+    def totalVelocity(self):
+        return np.sum(np.abs(self.self.telemetry.velocity))
 
     def __init__(self, serverAddress = '192.168.1.104', saveName = 'lander'):
 
@@ -130,7 +137,37 @@ class KerbalLanderEnvironment(gym.Env):
         self.control.throttle = throttle
 
     def calculateReward(self):
-        pass
+
+        reward = 0
+
+        # Could require some experimentation
+        # For now:
+
+        # Give 1 unit per 1000 metres altitude descended past 100k
+
+        reward += (1E5 - self.telemetry.surface_altitude) / 1E4
+
+        # Give -100 units if we explode
+
+        if self.exploded() : reward -= 100
+
+        # Give 100 units for touching down safely
+
+        touchedDown = False
+
+        if not self.exploded() and totalVelocity < 1:
+            reward += 100
+            touchedDown = True
+
+        # Give 100 * fraction of fuel left units if touched down safely
+
+        if touchedDown:
+            frac = self.propellant.current_amount / self.initFuel
+            reward += 100 * frac
+
+        # Could give something based on velocity close to the surface?
+
+        return reward
 
     def step(self, action):
 
