@@ -54,7 +54,7 @@ class KerbalLanderEnvironment(gym.Env):
         self.serverAddress = serverAddress
         self.saveName = saveName
 
-        self.reward_range = (0, 1)
+        self.reward_range = (-100, 300)
 
         self.stepCounter = 0
 
@@ -176,7 +176,7 @@ class KerbalLanderEnvironment(gym.Env):
         self._takeAction(action)
 
         obs = self._nextObservation()
-        reward = calculateReward()
+        reward = self.calculateReward()
         done = self.terminate()
 
         return obs, reward, done, {}
