@@ -92,6 +92,9 @@ class KerbalLanderEnvironment(gym.Env):
         self.currentFuel = self.initFuel
         self.hasFuel = self.engine.has_fuel
 
+        # Let's be optimistic
+        self.control.gear = True
+
     def terminate(self):
 
         # Between 3 and 1 -> on its side
@@ -166,6 +169,10 @@ class KerbalLanderEnvironment(gym.Env):
         self.autopilot.engage()
 
         # Block whilst the vessel orients
+
+        # Sometimes this enters an infinite loop if we're waiting whilst the vessel
+        # has crashed, so just wait 10 seconds instead and hope everything is okay
+
         # self.autopilot.wait()
 
         print('ap wait')
