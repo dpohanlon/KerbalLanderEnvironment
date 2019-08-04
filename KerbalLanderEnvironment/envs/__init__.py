@@ -1,1 +1,2 @@
 from KerbalLanderEnvironment.envs.KerbalLanderEnvironment import KerbalLanderEnvironment
+from KerbalLanderEnvironment.envs.KerbalLanderSimpleEnvironment import KerbalLanderSimpleEnvironment
