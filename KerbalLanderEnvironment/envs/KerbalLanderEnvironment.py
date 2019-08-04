@@ -10,7 +10,10 @@ import krpc
 
 class KerbalLanderEnvironment(gym.Env):
 
-    def __init__(self, serverAddress = '192.168.1.104', saveName = 'lander100k'):
+    # def __init__(self, serverAddress = '192.168.1.104', saveName = 'lander100k'):
+    # def __init__(self, serverAddress = '192.168.1.104', saveName = 'lander 38 fixed'):
+    # def __init__(self, serverAddress = '176.206.35.46', saveName = 'lander100k'):
+    def __init__(self, serverAddress = '176.206.35.46', saveName = 'lander 38 fixed'):
 
         super(KerbalLanderEnvironment, self).__init__()
 
@@ -24,7 +27,7 @@ class KerbalLanderEnvironment(gym.Env):
 
         self.initKRPC(self.serverAddress)
 
-        self.reward_range = (-100, 300)
+        self.reward_range = (-200, 1000)
 
         # Observations are:
         # Current throttle (float)
@@ -33,20 +36,22 @@ class KerbalLanderEnvironment(gym.Env):
 
         # Could add position vector (3 floats)(?)
 
+        maxVelocity = 1E3
+
         self.lowObs = np.array([
             0., # Throttle,
             0., # Altitude,
-            -np.finfo(np.float32).max, # vx,
-            -np.finfo(np.float32).max, # vy,
-            -np.finfo(np.float32).max # vz
+            # -maxVelocity, # vx,
+            # -maxVelocity, # vy,
+            -maxVelocity # vz
         ])
 
         self.highObs = np.array([
             1., # Throttle,
-            100000., # Altitude,
-            np.finfo(np.float32).max, # vx,
-            np.finfo(np.float32).max, # vy,
-            np.finfo(np.float32).max # vz
+            50000., # Altitude,
+            # maxVelocity, # vx,
+            # maxVelocity, # vy,
+            maxVelocity # vz
         ])
 
         self.observation_space = spaces.Box(self.lowObs, self.highObs, dtype = np.float32)
@@ -56,14 +61,14 @@ class KerbalLanderEnvironment(gym.Env):
         # Set Thrust (float)
 
         self.lowAct = np.array([
-            -90., # pitch
-            0., # heading
+            # -90., # pitch
+            # 0., # heading
             0., # throttle
         ])
 
         self.highAct = np.array([
-            90., # pitch
-            360., # heading
+            # 90., # pitch
+            # 360., # heading
             1., # throttle
         ])
 
@@ -76,42 +81,59 @@ class KerbalLanderEnvironment(gym.Env):
 
         self.vessel = self.conn.space_center.active_vessel
 
-        self.frame = self.vessel.orbit.body.reference_frame
-
-        self.telemetry = self.vessel.flight(self.frame)
-        self.control = self.vessel.control
-
         self.engine = self.vessel.parts.engines[0]
-        self.thrust = self.engine.available_thrust
-
-        self.autopilot = self.vessel.auto_pilot
-        self.autopilot.reference_frame = self.frame
 
         self.propellant = self.engine.propellants[0]
         self.initFuel = self.propellant.current_amount
         self.currentFuel = self.initFuel
         self.hasFuel = self.engine.has_fuel
 
+        self.vessel.control.speed_mode = self.vessel.control.speed_mode.surface
+
+        self.bodyFrame = self.vessel.orbit.body.reference_frame
+        self.frame = self.vessel.surface_velocity_reference_frame
+
+        self.telemetry = self.vessel.flight(self.bodyFrame)
+        self.control = self.vessel.control
+
+        self.thrust = self.engine.available_thrust
+
+        self.autopilot = self.vessel.auto_pilot
+        self.autopilot.reference_frame = self.frame
+
         # Let's be optimistic
         self.control.gear = True
+
+        # Simple mode
+        self.autopilot.disengage()
+        self.autopilot.sas = True
+        self.autopilot.sas_mode = self.conn.space_center.SASMode.retrograde
+
+        time.sleep(5)
 
     def terminate(self):
 
         # Between 3 and 1 -> on its side
-        termAlt = self.telemetry.surface_altitude > 100000 or self.telemetry.surface_altitude < 2
+        termAlt = self.telemetry.surface_altitude > 40000 or self.telemetry.surface_altitude < 2
         termFuel = not self.engine.has_fuel
-        termLanded = self.vessel.situation == self.vessel.situation.landed
+        termLanded = self.landed()
+        # termUp = self.telemetry.velocity[0] > 500
+        termUp = self.telemetry.velocity[0] > 0 and self.telemetry.surface_altitude > 100
 
         # Also have a nSteps requirement in here?
 
         # print('Terminate:', termAlt, termFuel, termLanded, self.exploded())
 
-        self.terminated = termAlt or termFuel or termLanded or self.exploded()
+        self.terminated = termAlt or termFuel or termLanded or self.exploded() or termUp
 
         return self.terminated
 
     def exploded(self):
-        return self.telemetry.surface_altitude < 1.
+        # return self.telemetry.surface_altitude < 1. or len(self.vessel.parts.engines) == 0
+        return len(self.vessel.parts.engines) == 0
+
+    def landed(self):
+        return self.vessel.situation == self.vessel.situation.landed
 
     def totalVelocity(self):
         return np.sum(np.abs(self.telemetry.velocity))
@@ -119,6 +141,9 @@ class KerbalLanderEnvironment(gym.Env):
     def reset(self):
 
         self.loadSave(self.saveName)
+
+        time.sleep(5)
+
         self.initKRPC(self.serverAddress)
 
         self.stepCounter = 0
@@ -130,12 +155,18 @@ class KerbalLanderEnvironment(gym.Env):
 
         velocity = self.telemetry.velocity
 
+        # obs = np.array([
+        #     self.mapRange(self.lowObs[0], self.highObs[0], -1.0, 1.0, self.control.throttle),
+        #     self.mapRange(self.lowObs[1], self.highObs[1], -1.0, 1.0, self.telemetry.surface_altitude),
+        #     self.mapRange(self.lowObs[2], self.highObs[2], -1.0, 1.0, velocity[0]),
+        #     self.mapRange(self.lowObs[3], self.highObs[3], -1.0, 1.0, velocity[1]),
+        #     self.mapRange(self.lowObs[4], self.highObs[4], -1.0, 1.0, velocity[2]),
+        # ])
+
         obs = np.array([
-            self.control.throttle,
-            self.telemetry.surface_altitude,
-            velocity[0],
-            velocity[1],
-            velocity[2],
+            self.mapRange(self.lowObs[0], self.highObs[0], 0, 1.0, self.control.throttle),
+            self.mapRange(self.lowObs[1], self.highObs[1], -1.0, 1.0, self.telemetry.surface_altitude),
+            self.mapRange(self.lowObs[2], self.highObs[2], -1.0, 1.0, self.telemetry.velocity[0]),
         ])
 
         return obs
@@ -161,12 +192,15 @@ class KerbalLanderEnvironment(gym.Env):
         # Output actions are sigmoid + OU noise, so clip then scale
         # Clipping should be okay, assuming that variance of OU noise is small compared to action range
 
-        action = np.clip(action, 0, 1)
+        throttle = np.clip(action, 0, 1)
 
-        pitch, heading, throttle = self.scaleAction(action)
+        # pitch, heading, throttle = self.scaleAction(action)
 
-        self.autopilot.target_pitch_and_heading(pitch.item(), heading.item())
-        self.autopilot.engage()
+        throttle  = self.mapRange(0., 1., self.lowAct[0], self.highAct[0], throttle)
+
+        # not in simple mode
+        # self.autopilot.target_pitch_and_heading(pitch.item(), heading.item())
+        # self.autopilot.engage()
 
         # Block whilst the vessel orients
 
@@ -175,81 +209,116 @@ class KerbalLanderEnvironment(gym.Env):
 
         # self.autopilot.wait()
 
-        print('ap wait')
         # thread = Thread(target = lambda : self.vessel.auto_pilot.wait())
         # thread.start()
         # thread.join(timeout = 5.0)
 
-        time.sleep(10)
+        # time.sleep(1)
 
-        print(pitch, heading, throttle)
         self.control.throttle = throttle.item()
 
     def calculateReward(self):
+
+        exploded = self.exploded()
 
         reward = 0
 
         # Could require some experimentation
         # For now:
-
         # Give 1 unit per 1000 metres altitude descended past 100k
 
-        reward += (1E5 - self.telemetry.surface_altitude) / 1E3
+        if not exploded:
+
+            reward += (1E5 - self.telemetry.surface_altitude) / 1E3
 
         # Give -100 units if we explode
-
-        if self.exploded() : reward -= 100
+        # Now less than reward for going slow
+        # if self.exploded():
+            # reward -= 10
 
         # Give 100 units for touching down safely
 
         touchedDown = False
 
-        if not self.exploded() and self.totalVelocity() < 1:
-            reward += 100
+        if not exploded and (self.totalVelocity() < 1 and self.telemetry.surface_altitude < 3) or self.landed():
+            reward += 1000
             touchedDown = True
 
         # Give 100 * fraction of fuel left units if touched down safely
 
-        if touchedDown:
-            frac = self.propellant.current_amount / self.initFuel
-            reward += 100 * frac
+        if touchedDown and not exploded:
+            frac = 0
+
+            try:
+                frac = self.propellant.current_amount / self.initFuel
+            except:
+                print('Could not get propellant amount')
+                frac = self.stepCounter / 200.
+
+            reward += 1000 * frac
 
         # Give -100 units for running out of fuel
 
-        if self.terminated and self.propellant.current_amount < 1E-5:
-            reward -= 100
+        # if self.terminated and not self.exploded() and len(self.vessel.parts.engines) > 0 and self.propellant.current_amount < 1E-5:
+            # reward -= 100
 
-        # Could give something based on velocity close to the surface?
+        # # Give some reward if we are slow when hitting the ground
+        #
+        # if self.exploded() or touchedDown:
+        #
+        #     # If using this when not on ground, limit to NEGATIVE velocity
+        #     reward += 1000. * np.exp(0.001 * self.telemetry.velocity[0])
+
+        # Give some reward if we are slow (double sided)
+
+        # if not exploded:
+        # Reward even if exploded
+
+        if self.telemetry.velocity[0] < 0:
+            reward += 1000. * np.exp(-0.01 * np.abs(self.telemetry.velocity[0])) # was 500
+
+        reward += 1000. * np.exp(-0.0001 * self.telemetry.surface_altitude)
+
+        # Give -100 if we go up too fast
+
+        # if self.telemetry.velocity[0] > 250: # 100 -> 200, so it has time to act
+        if self.telemetry.velocity[0] > 0 and self.telemetry.surface_altitude > 100: # Let it bounce a bit
+            reward -= 5000
+
+        # Give -100 if we went up too far
+
+        if self.telemetry.surface_altitude > 40000:
+            reward -= 5000
+
+        reward /= 1000.
 
         return reward
 
     def step(self, action):
 
+        print('Action:', action)
+
         self.stepCounter += 1
 
-        try:
+        if self.stepCounter == 10:
+            # This is zero at the start, not sure why
+            self.initFuel = self.propellant.current_amount
 
-            print('Taking action')
-            self._takeAction(action)
+        self._takeAction(action)
 
-            # Wait a second to see what happens
-            time.sleep(1)
+        # Wait a bit for our actions to take effect
+        time.sleep(0.1) # Was 0.5
 
-            print('Taking obs')
-            obs = self._nextObservation()
-            reward = self.calculateReward()
-            done = self.terminate()
+        done = self.terminate()
+        obs = self._nextObservation()
+        reward = self.calculateReward()
 
-            self.obs = obs
-            self.reward = reward
+        self.obs = obs
+        self.reward = reward
 
-        except:
-            print('Obs excpt')
-            # Return the previous ones, and done
-
-            obs = self.obs
-            reward = self.reward
-            done = True
+        print('Obs:', obs)
+        print('Reward:', reward)
+        print('Done:', done)
 
         return obs, reward, done, {}
 
