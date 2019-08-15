@@ -8,12 +8,25 @@ from gym import spaces, logger
 
 import krpc
 
+import matplotlib as mpl
+mpl.use('Agg')
+import matplotlib.pyplot as plt
+plt.style.use(['fivethirtyeight', 'seaborn-whitegrid', 'seaborn-ticks'])
+from matplotlib import rcParams
+from matplotlib import gridspec
+import matplotlib.ticker as plticker
+
+rcParams['axes.facecolor'] = 'FFFFFF'
+rcParams['savefig.facecolor'] = 'FFFFFF'
+rcParams['figure.facecolor'] = 'FFFFFF'
+rcParams['xtick.direction'] = 'in'
+rcParams['ytick.direction'] = 'in'
+
+rcParams.update({'figure.autolayout': True})
+
 class KerbalLanderEnvironment(gym.Env):
 
-    # def __init__(self, serverAddress = '192.168.1.104', saveName = 'lander100k'):
-    # def __init__(self, serverAddress = '192.168.1.104', saveName = 'lander 38 fixed'):
-    # def __init__(self, serverAddress = '176.206.35.46', saveName = 'lander100k'):
-    def __init__(self, serverAddress = '176.206.35.46', saveName = 'lander 38 fixed'):
+    def __init__(self, serverAddress = '127.0.0.1', saveName = 'lander 38 fixed'):
 
         super(KerbalLanderEnvironment, self).__init__()
 
@@ -36,43 +49,47 @@ class KerbalLanderEnvironment(gym.Env):
 
         # Could add position vector (3 floats)(?)
 
-        maxVelocity = 1E3
+        self.throttle = 0.
+
+        self.thrust = 60000.
+        self.vesselMass = 2355.
+
+        self.fuelBurnRate = 17.70
+
+        self.maxVelocity = 1E3
+        self.maxAltitude = 1E5 # Testing
 
         self.lowObs = np.array([
-            0., # Throttle,
-            0., # Altitude,
-            # -maxVelocity, # vx,
-            # -maxVelocity, # vy,
-            -maxVelocity # vz
+            0., # Min fuel
+            -10., # Altitude,
+            -self.maxVelocity # vz
         ])
 
         self.highObs = np.array([
-            1., # Throttle,
-            50000., # Altitude,
-            # maxVelocity, # vx,
-            # maxVelocity, # vy,
-            maxVelocity # vz
+            2041., # Max Fuel
+            self.maxAltitude, # Altitude,
+            self.maxVelocity # vz
         ])
 
         self.observation_space = spaces.Box(self.lowObs, self.highObs, dtype = np.float32)
 
         # Actions are:
-        # Point in a heading at pitch (2 floats)
         # Set Thrust (float)
 
         self.lowAct = np.array([
-            # -90., # pitch
-            # 0., # heading
             0., # throttle
         ])
 
         self.highAct = np.array([
-            # 90., # pitch
-            # 360., # heading
             1., # throttle
         ])
 
         self.action_space = spaces.Box(self.lowAct, self.highAct, dtype = np.float32)
+
+        self.vel = []
+        self.alt = []
+        self.acc = []
+        self.throt = []
 
     def loadSave(self, name):
         self.conn.space_center.load(name)
@@ -84,7 +101,7 @@ class KerbalLanderEnvironment(gym.Env):
         self.engine = self.vessel.parts.engines[0]
 
         self.propellant = self.engine.propellants[0]
-        self.initFuel = self.propellant.current_amount
+        self.initFuel = self.propellant.total_resource_available
         self.currentFuel = self.initFuel
         self.hasFuel = self.engine.has_fuel
 
@@ -107,9 +124,10 @@ class KerbalLanderEnvironment(gym.Env):
         # Simple mode
         self.autopilot.disengage()
         self.autopilot.sas = True
-        self.autopilot.sas_mode = self.conn.space_center.SASMode.retrograde
 
-        time.sleep(5)
+        time.sleep(2)
+
+        self.autopilot.sas_mode = self.conn.space_center.SASMode.retrograde
 
     def terminate(self):
 
@@ -122,14 +140,11 @@ class KerbalLanderEnvironment(gym.Env):
 
         # Also have a nSteps requirement in here?
 
-        # print('Terminate:', termAlt, termFuel, termLanded, self.exploded())
-
         self.terminated = termAlt or termFuel or termLanded or self.exploded() or termUp
 
         return self.terminated
 
     def exploded(self):
-        # return self.telemetry.surface_altitude < 1. or len(self.vessel.parts.engines) == 0
         return len(self.vessel.parts.engines) == 0
 
     def landed(self):
@@ -153,18 +168,14 @@ class KerbalLanderEnvironment(gym.Env):
 
     def _nextObservation(self):
 
+        thrustAcc = self.throttle * (self.thrust / self.vessel.mass)
         velocity = self.telemetry.velocity
 
-        # obs = np.array([
-        #     self.mapRange(self.lowObs[0], self.highObs[0], -1.0, 1.0, self.control.throttle),
-        #     self.mapRange(self.lowObs[1], self.highObs[1], -1.0, 1.0, self.telemetry.surface_altitude),
-        #     self.mapRange(self.lowObs[2], self.highObs[2], -1.0, 1.0, velocity[0]),
-        #     self.mapRange(self.lowObs[3], self.highObs[3], -1.0, 1.0, velocity[1]),
-        #     self.mapRange(self.lowObs[4], self.highObs[4], -1.0, 1.0, velocity[2]),
-        # ])
+        fuelMass = 2041 * (self.propellant.total_resource_available / 201.) # Correct 'fuel' reading
 
         obs = np.array([
-            self.mapRange(self.lowObs[0], self.highObs[0], 0, 1.0, self.control.throttle),
+            # self.mapRange(self.lowObs[0], self.highObs[0], -1.0, 1.0, thrustAcc),
+            self.mapRange(self.lowObs[0], self.highObs[0], -1.0, 1.0, fuelMass),
             self.mapRange(self.lowObs[1], self.highObs[1], -1.0, 1.0, self.telemetry.surface_altitude),
             self.mapRange(self.lowObs[2], self.highObs[2], -1.0, 1.0, self.telemetry.velocity[0]),
         ])
@@ -196,9 +207,10 @@ class KerbalLanderEnvironment(gym.Env):
 
         # pitch, heading, throttle = self.scaleAction(action)
 
-        throttle  = self.mapRange(0., 1., self.lowAct[0], self.highAct[0], throttle)
+        self.throttle  = self.mapRange(0., 1., self.lowAct[0], self.highAct[0], throttle)
 
-        # not in simple mode
+        # Not in simple mode!
+
         # self.autopilot.target_pitch_and_heading(pitch.item(), heading.item())
         # self.autopilot.engage()
 
@@ -215,7 +227,7 @@ class KerbalLanderEnvironment(gym.Env):
 
         # time.sleep(1)
 
-        self.control.throttle = throttle.item()
+        self.control.throttle = self.throttle.item()
 
     def calculateReward(self):
 
@@ -294,7 +306,37 @@ class KerbalLanderEnvironment(gym.Env):
 
         return reward
 
+    def makeEpisodePlot(self):
+
+        fig, axs = plt.subplots(2, 2, figsize=(26, 26))
+        plt.subplots_adjust(wspace = 0.25)
+
+        axs[0][0].plot(self.alt, linewidth = 2.0)
+        axs[0][0].set_xlabel('Steps', fontsize = 32)
+        axs[0][0].set_ylabel('Altitude', fontsize = 32)
+        axs[0][0].tick_params(labelsize = 24)
+
+        axs[0][1].plot(self.vel, linewidth = 2.0)
+        axs[0][1].set_xlabel('Steps', fontsize = 32)
+        axs[0][1].set_ylabel('Velocity', fontsize = 32)
+        axs[0][1].tick_params(labelsize = 24)
+
+        axs[1][0].plot(self.acc, linewidth = 2.0)
+        axs[1][0].set_xlabel('Steps', fontsize = 32)
+        axs[1][0].set_ylabel('Acceleration', fontsize = 32)
+        axs[1][0].tick_params(labelsize = 24)
+
+        axs[1][1].plot(self.throt, linewidth = 2.0)
+        axs[1][1].set_xlabel('Steps', fontsize = 32)
+        axs[1][1].set_ylabel('Throttle', fontsize = 32)
+        axs[1][1].tick_params(labelsize = 24)
+
+        plt.savefig('episode_ksp.pdf')
+        plt.clf()
+
     def step(self, action):
+
+        action = action[0]
 
         print('Action:', action)
 
@@ -303,22 +345,32 @@ class KerbalLanderEnvironment(gym.Env):
         if self.stepCounter == 10:
             # This is zero at the start, not sure why
             self.initFuel = self.propellant.current_amount
+            print('Fuel:', self.propellant.current_amount)
 
         self._takeAction(action)
 
         # Wait a bit for our actions to take effect
-        time.sleep(0.1) # Was 0.5
+        time.sleep(0.5)
 
         done = self.terminate()
         obs = self._nextObservation()
         reward = self.calculateReward()
 
+        acceleration = self.throttle * (self.thrust / self.vessel.mass) - self.telemetry.g_force
+        velocity = self.telemetry.velocity[0]
+        altitude = self.telemetry.surface_altitude
+
+        self.vel.append( velocity )
+        self.alt.append( altitude )
+        self.acc.append( acceleration )
+        self.throt.append( action )
+
         self.obs = obs
         self.reward = reward
 
-        print('Obs:', obs)
-        print('Reward:', reward)
-        print('Done:', done)
+        if done:
+            self._takeAction(np.array([0]))
+            self.makeEpisodePlot()
 
         return obs, reward, done, {}
 
