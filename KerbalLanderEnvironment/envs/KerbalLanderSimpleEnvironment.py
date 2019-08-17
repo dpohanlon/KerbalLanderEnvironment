@@ -30,6 +30,7 @@ class KerbalLanderSimpleEnvironment(gym.Env):
 
         self.thrust = 60000.
         self.vesselMass = 2355.
+        self.fuelMass = 2041.
 
         self.fuelBurnRate = 17.70
 
@@ -47,8 +48,9 @@ class KerbalLanderSimpleEnvironment(gym.Env):
         # Altitude above surface (float)
         # Velocity vector (3 floats)
 
-        self.maxVelocity = 1E3
-        self.maxAltitude = 3.5E4
+        self.maxVelocity = 1.5E3
+        self.maxAltitude = 1E5 # training
+        # self.maxAltitude = 1E5 # Testing
 
         self.lowObs = np.array([
             0., # Acc,
@@ -57,7 +59,8 @@ class KerbalLanderSimpleEnvironment(gym.Env):
         ])
 
         self.highObs = np.array([
-            self.thrust / self.vesselMass, # Acc,
+            # self.thrust / self.vesselMass, # Acc,
+            self.fuelMass, # FuelMass
             self.maxAltitude, # Altitude,
             self.maxVelocity # vz
         ])
@@ -84,9 +87,17 @@ class KerbalLanderSimpleEnvironment(gym.Env):
 
         self.stepCounter = 0
 
-        self.altitude = np.random.uniform(0, 20000)
-        self.velocity = np.random.uniform(-200, 0)
-        self.throttle = 0
+        # Correlated random initial conditions?
+
+        rnd = np.random.uniform(0, 1)
+
+        self.altitude = rnd * 50000
+        self.velocity = -1000 if np.random.uniform(0, 1) < 0.1 else - max(4 * rnd * 500, 50)
+
+        # self.altitude = 36000 # Test
+        # self.velocity = -650 # Test
+
+        self.throttle = 0.0
         self.acceleration = self.g(self.altitude)
 
         self.fuelMass = 2041.
@@ -109,7 +120,7 @@ class KerbalLanderSimpleEnvironment(gym.Env):
 
     def exploded(self):
 
-        if self.altitude < 1.0 and self.velocity < -20:
+        if self.altitude < 1.0 and self.velocity < -10: # Was -20
             return True
         else:
             return False
@@ -120,7 +131,7 @@ class KerbalLanderSimpleEnvironment(gym.Env):
         termHigh = self.altitude > self.maxAltitude
         termFuel = self.fuelMass < 1E-4
 
-        self.terminated = termDown or termHigh# or termFuel
+        self.terminated = termDown or termHigh or termFuel
 
         return self.terminated
 
@@ -139,7 +150,7 @@ class KerbalLanderSimpleEnvironment(gym.Env):
 
         dt = 0.1 # seconds
 
-        itr = 1
+        itr = 5
 
         for i in range(itr):
 
@@ -161,7 +172,8 @@ class KerbalLanderSimpleEnvironment(gym.Env):
         thrustAcc = self.throttle * (self.thrust / self.mass)
 
         obs = np.array([
-            self.mapRange(self.lowObs[0], self.highObs[0], -1.0, 1.0, thrustAcc),
+            # self.mapRange(self.lowObs[0], self.highObs[0], -1.0, 1.0, thrustAcc),
+            self.mapRange(self.lowObs[0], self.highObs[0], -1.0, 1.0, self.fuelMass),
             self.mapRange(self.lowObs[1], self.highObs[1], -1.0, 1.0, self.altitude),
             self.mapRange(self.lowObs[2], self.highObs[2], -1.0, 1.0, self.velocity),
         ])
@@ -189,6 +201,10 @@ class KerbalLanderSimpleEnvironment(gym.Env):
         if self.altitude < 1.0:
             reward += 1 * np.exp(-0.01 * np.abs(self.velocity))
             print('Hit @', self.velocity, reward)
+
+            # New
+            reward -= 0.1 * np.exp(-0.001 * np.abs(self.fuelMass))
+            print('Fuel @', self.fuelMass, reward)
 
         if self.fuelMass < 1E-4:
             print('No fuel')
@@ -238,10 +254,10 @@ class KerbalLanderSimpleEnvironment(gym.Env):
 
     def step(self, action):
 
-        self.vel.append( self.velocity )
-        self.alt.append( self.altitude )
-        self.acc.append( self.acceleration )
-        self.throt.append( action[0] )
+        # self.vel.append( self.velocity )
+        # self.alt.append( self.altitude )
+        # self.acc.append( self.acceleration )
+        # self.throt.append( action[0] )
 
         self.stepCounter += 1
 
