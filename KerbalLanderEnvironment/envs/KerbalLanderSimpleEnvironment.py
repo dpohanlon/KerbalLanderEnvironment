@@ -84,7 +84,6 @@ class KerbalLanderSimpleEnvironment(gym.Env):
 
         self.stepCounter = 0
 
-        # self.altitude = np.random.uniform(10000, 20000)
         self.altitude = np.random.uniform(0, 20000)
         self.velocity = np.random.uniform(-200, 0)
         self.throttle = 0
