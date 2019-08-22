@@ -41,7 +41,7 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
 
         self.totalRewards = []
 
-        self.reward_range = (-200, 1000)
+        self.reward_range = (-2, 3)
 
         # Observations are:
         # Current throttle (float)
@@ -122,21 +122,28 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
 
     def g(self, altitude):
 
-        m = 9.7599066E20
-        r = 200000
-        G = 6.67430E-11
+        m = 9.7599066E20 # Mun mass
+        r = 200000 # Mun radius
+        G = 6.67430E-11 # Gravitational constant
 
         return -G * m  / (r + altitude) ** 2
 
     def thrustAcc(self, throttle):
 
-        maxAcc = self.thrust / self.mass
+        thrustX = np.cos(self.pitch) * np.sin(self.heading)
+        thrustY = np.cos(self.pitch) * np.cos(self.heading)
+        thrustZ = np.sin(self.pitch)
 
-        return throttle * maxAcc
+        maxAcc = self.thrust / self.mass
+        accMag = throttle * maxAcc
+        acc = accMag * np.array([thrustX, thrustY, thrustZ])
+
+        return acc
 
     def exploded(self):
 
-        if self.altitude < 1.0 and self.velocity < -10: # Was -20
+        # Might also want to restrict movement in x, y
+        if self.altitude < 1.0 and self.velocity[2] < -10:
             return True
         else:
             return False
@@ -170,7 +177,7 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
 
         for i in range(itr):
 
-            # g acts in -ve direction
+            # g acts in -ve z direction
 
             newAcceleration = self.thrustAcc(self.throttle) + self.g(self.altitude)
 
@@ -202,7 +209,7 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
         # Clipping should be okay, assuming that variance of OU noise is small compared to action range
 
         self.throttle = np.clip(action[0], 0, 1)
-        self.pitch = self.mapRange(0, 1.0, self.lowAct[0], self.highAct[0], np.clip(action[1], 0, 1))
+        self.pitch = self.mapRange(0, 1.0, self.lowAct[1], self.highAct[1], np.clip(action[1], 0, 1))
         self.heading = self.mapRange(0, 1.0, self.lowAct[2], self.highAct[2], np.clip(action[2], 0, 1))
 
     def calculateReward(self):
