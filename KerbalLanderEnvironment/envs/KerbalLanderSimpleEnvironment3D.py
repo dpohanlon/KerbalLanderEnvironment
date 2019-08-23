@@ -63,9 +63,9 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
         self.highObs = np.array([
             self.fuelMass, # FuelMass
             self.maxAltitude, # Altitude,
-            -self.maxVelocity, # vx
-            -self.maxVelocity, # vy
-            -self.maxVelocity, # vz
+            self.maxVelocity, # vx
+            self.maxVelocity, # vy
+            self.maxVelocity, # vz
         ])
 
         self.observation_space = spaces.Box(self.lowObs, self.highObs, dtype = np.float32)
@@ -76,16 +76,30 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
         # Heading:
         #The heading of the vessel (its angle relative to north), in degrees. A value between 0 and 360.
 
+        # self.lowAct = np.array([
+        #     0., # throttle
+        #     -90, # pitch
+        #     0, # heading
+        # ])
+        #
+        # self.highAct = np.array([
+        #     1., # throttle
+        #     90, # pitch
+        #     360, # heading
+        # ])
+
+        # For stable-baselines
+
         self.lowAct = np.array([
-            0., # throttle
-            -90, # pitch
-            0, # heading
+            -1.0, # throttle
+            -1.0, # pitch
+            -1.0, # heading
         ])
 
         self.highAct = np.array([
-            1., # throttle
-            90, # pitch
-            360, # heading
+            1.0, # throttle
+            1.0, # pitch
+            1.0, # heading
         ])
 
         self.action_space = spaces.Box(self.lowAct, self.highAct, dtype = np.float32)
@@ -105,8 +119,12 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
         rnd = np.random.uniform(0, 1)
 
         self.altitude = rnd * 50000
+        self.x = np.array([0, 0, self.altitude])
+
         vz = -1000 if np.random.uniform(0, 1) < 0.1 else - max(4 * rnd * 500, 50)
-        self.velocity = np.array([0, 0, vz])
+        vx = np.random.uniform(-50, 50)
+        vy = np.random.uniform(-50, 50)
+        self.velocity = np.array([vx, vy, vz])
 
         # self.altitude = 36000 # Test
         # self.velocity = -650 # Test
@@ -143,7 +161,7 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
     def exploded(self):
 
         # Might also want to restrict movement in x, y
-        if self.altitude < 1.0 and self.velocity[2] < -10:
+        if self.altitude < 1.0 and (self.velocity[2] < -10 or np.sum(np.abs(self.velocity[:2])) > 10):
             return True
         else:
             return False
@@ -173,7 +191,7 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
 
         dt = 0.1 # seconds
 
-        itr = 5
+        itr = 5 * 5
 
         for i in range(itr):
 
@@ -181,10 +199,11 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
 
             newAcceleration = self.thrustAcc(self.throttle) + self.g(self.altitude)
 
-            newAltitude = self.altitude + self.velocity * dt + 0.5 * self.acceleration * dt * dt
+            newX = self.x + self.velocity * dt + 0.5 * self.acceleration * dt * dt
             newVelocity = self.velocity + 0.5 * (self.acceleration + newAcceleration) * dt
 
-            self.altitude = newAltitude
+            self.x = newX
+            self.altitude = self.x[2]
             self.velocity = newVelocity
             self.acceleration = newAcceleration
 
@@ -208,9 +227,9 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
         # Output actions are sigmoid + OU noise, so clip then scale
         # Clipping should be okay, assuming that variance of OU noise is small compared to action range
 
-        self.throttle = np.clip(action[0], 0, 1)
-        self.pitch = self.mapRange(0, 1.0, self.lowAct[1], self.highAct[1], np.clip(action[1], 0, 1))
-        self.heading = self.mapRange(0, 1.0, self.lowAct[2], self.highAct[2], np.clip(action[2], 0, 1))
+        self.throttle = self.mapRange(self.lowAct[0], self.highAct[0], 0.0, 1.0, np.clip(action[0], -1, 1))
+        self.pitch = self.mapRange(self.lowAct[1], self.highAct[1], -90., 90., np.clip(action[1], -1, 1))
+        self.heading = self.mapRange(self.lowAct[2], self.highAct[2], 0., 360., np.clip(action[2], -1, 1))
 
     def calculateReward(self):
 
@@ -221,8 +240,11 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
             reward += 2.
 
         if self.altitude < 1.0:
-            reward += 1 * np.exp(-0.01 * np.abs(self.velocity))
-            print('Hit @', self.velocity, reward)
+            reward += 1 * np.exp(-0.01 * np.abs(self.velocity[2]))
+            print('Hit @', self.velocity[2], reward)
+
+            reward += 1 * np.exp(-0.01 * np.sum(np.abs(self.velocity[:2])))
+            print('Hit @', self.velocity[:2], reward)
 
             # New
             reward -= 0.1 * np.exp(-0.001 * np.abs(self.fuelMass))
