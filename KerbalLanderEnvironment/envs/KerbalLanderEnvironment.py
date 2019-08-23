@@ -77,7 +77,7 @@ class KerbalLanderEnvironment(gym.Env):
         # Set Thrust (float)
 
         self.lowAct = np.array([
-            0., # throttle
+            -1., # throttle
         ])
 
         self.highAct = np.array([
@@ -132,7 +132,7 @@ class KerbalLanderEnvironment(gym.Env):
     def terminate(self):
 
         # Between 3 and 1 -> on its side
-        termAlt = self.telemetry.surface_altitude > 40000 or self.telemetry.surface_altitude < 2
+        termAlt = self.telemetry.surface_altitude > 40000 or self.telemetry.surface_altitude < 3.5
         termFuel = not self.engine.has_fuel
         termLanded = self.landed()
         # termUp = self.telemetry.velocity[0] > 500
@@ -203,31 +203,9 @@ class KerbalLanderEnvironment(gym.Env):
         # Output actions are sigmoid + OU noise, so clip then scale
         # Clipping should be okay, assuming that variance of OU noise is small compared to action range
 
-        throttle = np.clip(action, 0, 1)
+        self.throttle = self.mapRange(self.lowAct[0], self.highAct[0], 0.0, 1.0, np.clip(action, -1, 1))
 
-        # pitch, heading, throttle = self.scaleAction(action)
-
-        self.throttle  = self.mapRange(0., 1., self.lowAct[0], self.highAct[0], throttle)
-
-        # Not in simple mode!
-
-        # self.autopilot.target_pitch_and_heading(pitch.item(), heading.item())
-        # self.autopilot.engage()
-
-        # Block whilst the vessel orients
-
-        # Sometimes this enters an infinite loop if we're waiting whilst the vessel
-        # has crashed, so just wait 10 seconds instead and hope everything is okay
-
-        # self.autopilot.wait()
-
-        # thread = Thread(target = lambda : self.vessel.auto_pilot.wait())
-        # thread.start()
-        # thread.join(timeout = 5.0)
-
-        # time.sleep(1)
-
-        self.control.throttle = self.throttle.item()
+        self.control.throttle = self.throttle
 
     def calculateReward(self):
 
@@ -350,7 +328,7 @@ class KerbalLanderEnvironment(gym.Env):
         self._takeAction(action)
 
         # Wait a bit for our actions to take effect
-        time.sleep(0.5)
+        time.sleep(2.5) # was 0.5
 
         done = self.terminate()
         obs = self._nextObservation()
@@ -363,13 +341,13 @@ class KerbalLanderEnvironment(gym.Env):
         self.vel.append( velocity )
         self.alt.append( altitude )
         self.acc.append( acceleration )
-        self.throt.append( action )
+        self.throt.append( self.throttle )
 
         self.obs = obs
         self.reward = reward
 
         if done:
-            self._takeAction(np.array([0]))
+            self._takeAction(-1)
             self.makeEpisodePlot()
 
         return obs, reward, done, {}

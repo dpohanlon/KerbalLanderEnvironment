@@ -26,7 +26,7 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
 
     def __init__(self):
 
-        super(KerbalLanderSimpleEnvironment, self).__init__()
+        super(KerbalLanderSimpleEnvironment3D, self).__init__()
 
         self.thrust = 60000.
         self.vesselMass = 2355.

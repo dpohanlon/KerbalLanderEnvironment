@@ -68,7 +68,7 @@ class KerbalLanderSimpleEnvironment(gym.Env):
         self.observation_space = spaces.Box(self.lowObs, self.highObs, dtype = np.float32)
 
         self.lowAct = np.array([
-            0., # throttle
+            -1., # throttle
         ])
 
         self.highAct = np.array([
@@ -89,13 +89,20 @@ class KerbalLanderSimpleEnvironment(gym.Env):
 
         # Correlated random initial conditions?
 
-        rnd = np.random.uniform(0, 1)
+        # rnd = np.random.uniform(0, 1)
+        #
+        # self.altitude = rnd * 50000
+        # self.velocity = -1000 if np.random.uniform(0, 1) < 0.05 else - max(2 * rnd * 500, 50)
+        #
+        # if np.random.uniform(0, 1) < 0.05:
+        #     self.altitude = 50
+        #     self.velocity = 0
 
-        self.altitude = rnd * 50000
-        self.velocity = -1000 if np.random.uniform(0, 1) < 0.1 else - max(4 * rnd * 500, 50)
+        # self.altitude = 36000
+        # self.velocity = -650
 
-        # self.altitude = 36000 # Test
-        # self.velocity = -650 # Test
+        self.altitude = 30000
+        self.velocity = 0
 
         self.throttle = 0.0
         self.acceleration = self.g(self.altitude)
@@ -150,7 +157,7 @@ class KerbalLanderSimpleEnvironment(gym.Env):
 
         dt = 0.1 # seconds
 
-        itr = 5
+        itr = 5 * 5
 
         for i in range(itr):
 
@@ -172,7 +179,6 @@ class KerbalLanderSimpleEnvironment(gym.Env):
         thrustAcc = self.throttle * (self.thrust / self.mass)
 
         obs = np.array([
-            # self.mapRange(self.lowObs[0], self.highObs[0], -1.0, 1.0, thrustAcc),
             self.mapRange(self.lowObs[0], self.highObs[0], -1.0, 1.0, self.fuelMass),
             self.mapRange(self.lowObs[1], self.highObs[1], -1.0, 1.0, self.altitude),
             self.mapRange(self.lowObs[2], self.highObs[2], -1.0, 1.0, self.velocity),
@@ -186,9 +192,9 @@ class KerbalLanderSimpleEnvironment(gym.Env):
         # Output actions are sigmoid + OU noise, so clip then scale
         # Clipping should be okay, assuming that variance of OU noise is small compared to action range
 
-        throttle = np.clip(action, 0, 1)
+        self.throttle = self.mapRange(self.lowAct[0], self.highAct[0], 0.0, 1.0, np.clip(action[0], -1, 1))
 
-        self.throttle = throttle[0] # Single element vector
+        # print(self.throttle, self.altitude, self.velocity)
 
     def calculateReward(self):
 
@@ -254,10 +260,10 @@ class KerbalLanderSimpleEnvironment(gym.Env):
 
     def step(self, action):
 
-        # self.vel.append( self.velocity )
-        # self.alt.append( self.altitude )
-        # self.acc.append( self.acceleration )
-        # self.throt.append( action[0] )
+        self.vel.append( self.velocity )
+        self.alt.append( self.altitude )
+        self.acc.append( self.acceleration )
+        self.throt.append( self.throttle )
 
         self.stepCounter += 1
 
@@ -279,7 +285,7 @@ class KerbalLanderSimpleEnvironment(gym.Env):
         if done:
             self.totalRewards.append( self.episodeReward )
 
-            # self.makeEpisodePlot()
+            self.makeEpisodePlot()
 
             if len(self.totalRewards) > 0 and len(self.totalRewards) % 1000 == 0:
                 self.makeRewardPlot()
