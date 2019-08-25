@@ -76,18 +76,6 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
         # Heading:
         #The heading of the vessel (its angle relative to north), in degrees. A value between 0 and 360.
 
-        # self.lowAct = np.array([
-        #     0., # throttle
-        #     -90, # pitch
-        #     0, # heading
-        # ])
-        #
-        # self.highAct = np.array([
-        #     1., # throttle
-        #     90, # pitch
-        #     360, # heading
-        # ])
-
         # For stable-baselines
 
         self.lowAct = np.array([
@@ -121,18 +109,26 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
         self.altitude = rnd * 50000
         self.x = np.array([0, 0, self.altitude])
 
-        vz = -1000 if np.random.uniform(0, 1) < 0.1 else - max(4 * rnd * 500, 50)
+        vz = -1000 if np.random.uniform(0, 1) < 0.05 else - max(2 * rnd * 500, 50)
         vx = np.random.uniform(-50, 50)
         vy = np.random.uniform(-50, 50)
+
         self.velocity = np.array([vx, vy, vz])
+
+        if np.random.uniform(0, 1) < 0.05:
+            self.altitude = 20
+            self.x = np.array([0, 0, self.altitude])
+
+            self.velocity = np.array([0, 0, 0])
+
+        # self.velocity = np.array([0, 0, 0])
 
         # self.altitude = 36000 # Test
         # self.velocity = -650 # Test
 
         self.throttle = 0.0
-        g = self.g(self.altitude) # -ve z direction
 
-        self.acceleration = np.array([0, 0, g])
+        self.acceleration = self.g(self.altitude) # -ve z direction
 
         self.fuelMass = 2041.
 
@@ -144,17 +140,18 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
         r = 200000 # Mun radius
         G = 6.67430E-11 # Gravitational constant
 
-        return -G * m  / (r + altitude) ** 2
+        return np.array([0, 0, -G * m  / (r + altitude) ** 2])
 
     def thrustAcc(self, throttle):
 
-        thrustX = np.cos(self.pitch) * np.sin(self.heading)
-        thrustY = np.cos(self.pitch) * np.cos(self.heading)
-        thrustZ = np.sin(self.pitch)
+        thrustX = np.cos(np.radians(self.pitch)) * np.sin(np.radians(self.heading))
+        thrustY = np.cos(np.radians(self.pitch)) * np.cos(np.radians(self.heading))
+        thrustZ = np.sin(np.radians(self.pitch))
 
         maxAcc = self.thrust / self.mass
         accMag = throttle * maxAcc
-        acc = accMag * np.array([thrustX, thrustY, thrustZ])
+        accVec = np.array([thrustX, thrustY, thrustZ])
+        acc = accMag * accVec
 
         return acc
 
@@ -219,7 +216,6 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
             self.mapRange(self.lowObs[4], self.highObs[4], -1.0, 1.0, self.velocity[2]),
         ])
 
-        # Sometimes (1, 3), sometimes (,3) - not sure why
         return obs.flatten()
 
     def _takeAction(self, action):
@@ -303,8 +299,6 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
         # self.acc.append( self.acceleration )
         # self.throt.append( action[0] )
 
-        self.stepCounter += 1
-
         self._takeAction(action)
 
         self.forward()
@@ -328,17 +322,26 @@ class KerbalLanderSimpleEnvironment3D(gym.Env):
             if len(self.totalRewards) > 0 and len(self.totalRewards) % 1000 == 0:
                 self.makeRewardPlot()
 
+        self.stepCounter += 1
+
         return obs, reward, done, {}
 
 if __name__ == '__main__':
 
     lander = KerbalLanderSimpleEnvironment3D()
 
-    action = [0.0]
+    # action = [-1.0, 1.0, -1.0] # Nothing
+    action = [0.0, 0.0, 0.0]
 
-    alt = []
-    vel = []
-    acc = []
+    throttle = lander.mapRange(lander.lowAct[0], lander.highAct[0], 0.0, 1.0, np.clip(action[0], -1, 1))
+    pitch = lander.mapRange(lander.lowAct[1], lander.highAct[1], -90., 90., np.clip(action[1], -1, 1))
+    heading = lander.mapRange(lander.lowAct[2], lander.highAct[2], 0., 360., np.clip(action[2], -1, 1))
+
+    print(throttle, pitch, heading)
+
+    x, y, z = [], [], []
+    velX, velY, velZ = [], [], []
+    accX, accY, accZ = [], [], []
 
     for i in range(10000):
         obs, reward, done, _ = lander.step(action)
@@ -347,24 +350,68 @@ if __name__ == '__main__':
             lander.reset()
             break
 
-        alt.append( lander.altitude )
-        vel.append( lander.velocity )
-        acc.append( lander.acceleration )
+        x.append( lander.x[0] )
+        y.append( lander.x[1] )
+        z.append( lander.x[2] )
 
-    plt.plot(alt, linewidth = 1.0)
+        velX.append( lander.velocity[0] )
+        velY.append( lander.velocity[1] )
+        velZ.append( lander.velocity[2] )
+
+        accX.append( lander.acceleration[0] )
+        accY.append( lander.acceleration[1] )
+        accZ.append( lander.acceleration[2] )
+
+    plt.plot(x, linewidth = 1.0)
     plt.xlabel('steps')
-    plt.ylabel('Altitude')
-    plt.savefig('alt.pdf')
+    plt.ylabel('x')
+    plt.savefig('x.pdf')
     plt.clf()
 
-    plt.plot(vel, linewidth = 1.0)
+    plt.plot(y, linewidth = 1.0)
     plt.xlabel('steps')
-    plt.ylabel('Velocity')
-    plt.savefig('vel.pdf')
+    plt.ylabel('y')
+    plt.savefig('y.pdf')
     plt.clf()
 
-    plt.plot(acc, linewidth = 1.0)
+    plt.plot(z, linewidth = 1.0)
     plt.xlabel('steps')
-    plt.ylabel('Acceleration')
-    plt.savefig('acc.pdf')
+    plt.ylabel('z')
+    plt.savefig('z.pdf')
+    plt.clf()
+
+    plt.plot(velX, linewidth = 1.0)
+    plt.xlabel('steps')
+    plt.ylabel('vx')
+    plt.savefig('vx.pdf')
+    plt.clf()
+
+    plt.plot(velY, linewidth = 1.0)
+    plt.xlabel('steps')
+    plt.ylabel('vy')
+    plt.savefig('vy.pdf')
+    plt.clf()
+
+    plt.plot(velZ, linewidth = 1.0)
+    plt.xlabel('steps')
+    plt.ylabel('vz')
+    plt.savefig('vz.pdf')
+    plt.clf()
+
+    plt.plot(accX, linewidth = 1.0)
+    plt.xlabel('steps')
+    plt.ylabel('ax')
+    plt.savefig('ax.pdf')
+    plt.clf()
+
+    plt.plot(accY, linewidth = 1.0)
+    plt.xlabel('steps')
+    plt.ylabel('ay')
+    plt.savefig('ay.pdf')
+    plt.clf()
+
+    plt.plot(accZ, linewidth = 1.0)
+    plt.xlabel('steps')
+    plt.ylabel('az')
+    plt.savefig('az.pdf')
     plt.clf()
